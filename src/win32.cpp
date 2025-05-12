@@ -86,6 +86,7 @@ win32_window_callback(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     return result;
 }
 
+// @SPEC: ZII
 function
 OS_ALLOC(win32_alloc) {
     void *result = VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);

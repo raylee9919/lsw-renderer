@@ -12,9 +12,13 @@
 
 
     
-#include <windows.h>
 
-#define VK_USE_PLATFORM_WIN32_KHR
+
+#include <X11/Xlib.h>
+#include <X11/Xatom.h>
+#include <X11/Xutil.h>
+
+#define VK_USE_PLATFORM_XLIB_KHR
 #include <vulkan/vulkan.h>
 
 #include "core.h"
@@ -28,27 +32,26 @@ Os os;
 #include "renderer.h"
 global Renderer renderer;
 
-#include "win32_renderer.h"
+#include "linux_renderer.h"
 #include "renderer_vulkan.cpp"
 
 
 // @SPEC: ZII
-function void *
-win32_alloc(umm size) {
-    void *result = VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-    ASSERT(result);
+function
+linux_alloc(size_t size) {
+    void *result = mmap(0, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
     return result;
 }
 
-function void
-win32_free(void *memory) {
+function
+linux_free(void *memory) {
     if (memory) {
-        VirtualFree(memory, 0, MEM_RELEASE);
+        // @TODO:
     }
 }
 
 function void
-win32_vk_create_instance(Vulkan *vk, const char **layers, u32 layer_count) {
+linux_vk_create_instance(Vulkan *vk, const char **layers, u32 layer_count) {
     VkApplicationInfo app_info{};
     app_info.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app_info.pApplicationName   = "Hello World";
@@ -59,7 +62,7 @@ win32_vk_create_instance(Vulkan *vk, const char **layers, u32 layer_count) {
 
     const char *extensions[] = {
         VK_KHR_SURFACE_EXTENSION_NAME,
-        VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+        VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
     };
 
     VkInstanceCreateInfo create_info{};
@@ -73,32 +76,31 @@ win32_vk_create_instance(Vulkan *vk, const char **layers, u32 layer_count) {
     ASSERT(vkCreateInstance(&create_info, 0, &vk->instance) == VK_SUCCESS);
 }
 
-
 function VkSurfaceKHR
-win32_vk_create_surface(VkInstance instance, HWND hwnd, HINSTANCE hinst) {
+linux_vk_create_surface(VkInstance instance, Display *display, Window window) {
     VkSurfaceKHR result{};
 
-    VkWin32SurfaceCreateInfoKHR create_info{};
-    create_info.sType       = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+    VkXlibSurfaceCreateInfoKHR create_info{};
+    create_info.sType       = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
     create_info.pNext       = 0;
     create_info.flags       = 0;
-    create_info.hinstance   = hinst;
-    create_info.hwnd        = hwnd;
+    create_info.dpy         = display;
+    create_info.window      = window;
 
-    ASSERT(vkCreateWin32SurfaceKHR(instance, &create_info, 0, &result) == VK_SUCCESS);
+    ASSERT(vkCreateXlibSurfaceKHR(instance, &create_info, 0, &result) == VK_SUCCESS);
 
     return result;
 }
 
 function b32
-win32_vk_pick_physical_device_and_create_surface(Vulkan *vk, HWND hwnd, HINSTANCE hinst,
+linux_vk_pick_physical_device_and_create_surface(Vulkan *vk, Display *display, Window window,
                                                  VkPhysicalDevice *physical_devices, u32 physical_device_count) {
     b32 result = false;
 
     for (u32 pdi = 0; pdi < physical_device_count; ++pdi) {
         VkPhysicalDevice physical_device = physical_devices[pdi];
 
-        VkSurfaceKHR surface = win32_vk_create_surface(vk->instance, hwnd, hinst);
+        VkSurfaceKHR surface = linux_vk_create_surface(vk->instance, display, window);
 
         u32 queue_family_property_count;
         VkQueueFamilyProperties *queue_family_properties;
@@ -126,7 +128,7 @@ win32_vk_pick_physical_device_and_create_surface(Vulkan *vk, HWND hwnd, HINSTANC
             VkBool32 present_supported;
             ASSERT(vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, qfi, surface, &present_supported) == VK_SUCCESS);
 
-            if (present_supported && vkGetPhysicalDeviceWin32PresentationSupportKHR(physical_device, qfi)) {
+            if (present_supported && vkGetPhysicalDeviceXlibPresentationSupportKHR(physical_device, qfi)) {
                 present_queue_family.index = qfi;
                 present_queue_family.queue_count = queue_family_property.queueCount;
                 present_queue_family_found = true;
@@ -151,17 +153,17 @@ win32_vk_pick_physical_device_and_create_surface(Vulkan *vk, HWND hwnd, HINSTANC
 }
 
 function void
-win32_vk_pick_best_physical_device_and_create_surface(Vulkan *vk, HWND hwnd, HINSTANCE hinst) {
+linux_vk_pick_best_physical_device_and_create_surface(Vulkan *vk, Display *display, Window window) {
     u32 physical_device_count = vk_query_physical_device_count(vk->instance);
-    VkPhysicalDevice *physical_devices = (VkPhysicalDevice *)win32_alloc(sizeof(VkPhysicalDevice)*physical_device_count);
-    SCOPE_EXIT(win32_free(physical_devices));
+    VkPhysicalDevice *physical_devices = (VkPhysicalDevice *)linux_alloc(sizeof(VkPhysicalDevice)*physical_device_count);
+    SCOPE_EXIT(linux_free(physical_devices));
     vk_query_physical_devices(vk->instance, physical_devices);
     vk_sort_physical_devices(physical_devices, physical_device_count);
-    ASSERT(win32_vk_pick_physical_device_and_create_surface(vk, hwnd, hinst, physical_devices, physical_device_count));
+    ASSERT(linux_vk_pick_physical_device_and_create_surface(vk, display, window, physical_devices, physical_device_count));
 }
 
-RENDERER_END_FRAME(win32_end_frame) {
-    HWND hwnd = ((Renderer_Win32 *)renderer.platform)->hwnd;
+RENDERER_END_FRAME(linux_end_frame) {
+    Window window = ((Renderer_Linux *)renderer.platform)->window;
 
     RECT rect{};
     GetClientRect(hwnd, &rect);
@@ -184,17 +186,16 @@ RENDERER_END_FRAME(win32_end_frame) {
     renderer.drawcall_vertex_count.clear();
 }
 
-WIN32_LOAD_RENDERER(win32_load_renderer) {
-    os.alloc = win32_alloc;
-    os.free  = win32_free;
+LINUX_LOAD_RENDERER(linux_load_renderer) {
+    os.alloc = linux_alloc;
+    os.free  = linux_free;
 
-    HINSTANCE hinst = GetModuleHandle(0);
+    renderer.platform = linux_alloc(sizeof(Renderer_Linux));
+    Renderer_Linux *renderer_linux = (Renderer_Linux *)renderer.platform;
+    renderer_linux->display = display;
+    renderer_linux->window = window;
 
-    renderer.platform = win32_alloc(sizeof(Renderer_Win32));
-    Renderer_Win32 *renderer_win32 = (Renderer_Win32 *)renderer.platform;
-    renderer_win32->hwnd = hwnd;
-
-    renderer.backend = win32_alloc(sizeof(Vulkan));
+    renderer.backend = linux_alloc(sizeof(Vulkan));
     Vulkan *vk = (Vulkan *)renderer.backend;
 
     renderer.image_hash_table.init(32);
@@ -207,8 +208,8 @@ WIN32_LOAD_RENDERER(win32_load_renderer) {
 #endif
     };
     u32 available_layer_count = vk_query_available_layer_count();
-    VkLayerProperties *available_layers = (VkLayerProperties *)win32_alloc(sizeof(VkLayerProperties) * available_layer_count);
-    SCOPE_EXIT(win32_free(available_layers));
+    VkLayerProperties *available_layers = (VkLayerProperties *)linux_alloc(sizeof(VkLayerProperties) * available_layer_count);
+    SCOPE_EXIT(linux_free(available_layers));
     vk_query_available_layers(available_layers);
     for (u32 i = 0; i < arraycount(desired_layers); ++i) {
         if (!vk_is_layer_available(desired_layers[i], available_layers, available_layer_count)) {
@@ -216,8 +217,8 @@ WIN32_LOAD_RENDERER(win32_load_renderer) {
         }
     }
 
-    win32_vk_create_instance(vk, desired_layers, arraycount(desired_layers));
-    win32_vk_pick_best_physical_device_and_create_surface(vk, hwnd, hinst);
+    linux_vk_create_instance(vk, desired_layers, arraycount(desired_layers));
+    linux_vk_pick_best_physical_device_and_create_surface(vk, hwnd, hinst);
 
     vk_init(vk);
 

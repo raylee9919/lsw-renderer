@@ -11,13 +11,15 @@
 
 
 
-#if __MSVC
+#if _MSC_VER
   #include <intrin.h>
-#elif __LINUX
+#elif __GNUC__
   #include <x86intrin.h>
+  #include <math.h>
 #endif
 
 
+#if 0
 function f32
 pow(f32 x, f32 y) {
     __m128 val = _mm_pow_ps(_mm_set1_ps(x), _mm_set1_ps(y));
@@ -59,6 +61,7 @@ sqrt(f32 x) {
     f32 result = *(f32 *)&val;
     return result;
 }
+#endif
 
 function s32
 round_f32_to_s32(f32 x) {
