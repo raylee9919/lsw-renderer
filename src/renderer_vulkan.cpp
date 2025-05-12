@@ -317,7 +317,11 @@ vk_alloc_buffer(Vulkan *vk, VkBuffer *buffer, VkDeviceMemory *buffer_memory,
                                                                  memreq.memoryTypeBits,
                                                                  memory_property_flags);
 
-    ASSERT(vkAllocateMemory(vk->device, &buffer_alloc_info, 0, buffer_memory) == VK_SUCCESS);
+    VkResult res = vkAllocateMemory(vk->device, &buffer_alloc_info, 0, buffer_memory);
+    if (res != VK_SUCCESS) {
+        printf("%d\n", res);
+        INVALID_CODE_PATH;
+    }
 
     vkBindBufferMemory(vk->device, *buffer, *buffer_memory, 0);
 }
@@ -918,8 +922,8 @@ vk_init(Vulkan *vk) {
     //
     // Shader Module
     //
-    Buffer vs_spv = read_entire_file("shaders/simple_vs.spv");
-    Buffer fs_spv = read_entire_file("shaders/simple_fs.spv");
+    Buffer vs_spv = read_entire_file("../data/shaders/simple_vs.spv");
+    Buffer fs_spv = read_entire_file("../data/shaders/simple_fs.spv");
     VkShaderModule vs_module = vk_create_shader_module(vk->device, vs_spv.data, vs_spv.size);
     VkShaderModule fs_module = vk_create_shader_module(vk->device, fs_spv.data, fs_spv.size);
 
@@ -1213,7 +1217,7 @@ vk_init(Vulkan *vk) {
     // DEBUG Image
     //
     int width, height, channels;
-    u8* texels = stbi_load("texture.jpg", &width, &height, &channels, 4);
+    u8* texels = stbi_load("../data/texture.jpg", &width, &height, &channels, 4);
     VkDeviceSize image_size = width * height * 4;
     ASSERT(texels);
 

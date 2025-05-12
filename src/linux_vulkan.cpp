@@ -13,6 +13,7 @@
 
     
 
+#include <sys/mman.h>
 
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
@@ -37,13 +38,13 @@ global Renderer renderer;
 
 
 // @SPEC: ZII
-function
+function void *
 linux_alloc(size_t size) {
     void *result = mmap(0, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
     return result;
 }
 
-function
+function void
 linux_free(void *memory) {
     if (memory) {
         // @TODO:
@@ -128,7 +129,11 @@ linux_vk_pick_physical_device_and_create_surface(Vulkan *vk, Display *display, W
             VkBool32 present_supported;
             ASSERT(vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, qfi, surface, &present_supported) == VK_SUCCESS);
 
-            if (present_supported && vkGetPhysicalDeviceXlibPresentationSupportKHR(physical_device, qfi)) {
+            int screen = DefaultScreen(display);
+            Visual *visual = DefaultVisual(display, screen);
+            VisualID visual_id = XVisualIDFromVisual(visual);
+
+            if (present_supported && vkGetPhysicalDeviceXlibPresentationSupportKHR(physical_device, qfi, display, visual_id)) {
                 present_queue_family.index = qfi;
                 present_queue_family.queue_count = queue_family_property.queueCount;
                 present_queue_family_found = true;
@@ -162,13 +167,15 @@ linux_vk_pick_best_physical_device_and_create_surface(Vulkan *vk, Display *displ
     ASSERT(linux_vk_pick_physical_device_and_create_surface(vk, display, window, physical_devices, physical_device_count));
 }
 
+extern "C"
 RENDERER_END_FRAME(linux_end_frame) {
     Window window = ((Renderer_Linux *)renderer.platform)->window;
+    Display *display = ((Renderer_Linux *)renderer.platform)->display;
 
-    RECT rect{};
-    GetClientRect(hwnd, &rect);
-    u32 width  = rect.right  - rect.left;
-    u32 height = rect.bottom - rect.top;
+    XWindowAttributes attr{};
+    XGetWindowAttributes(display, window, &attr);
+    u32 width = attr.width;
+    u32 height = attr.height;
 
     if (width > 0 && height > 0) {
         Vulkan *vk = (Vulkan *)renderer.backend;
@@ -186,6 +193,7 @@ RENDERER_END_FRAME(linux_end_frame) {
     renderer.drawcall_vertex_count.clear();
 }
 
+extern "C"
 LINUX_LOAD_RENDERER(linux_load_renderer) {
     os.alloc = linux_alloc;
     os.free  = linux_free;
@@ -218,7 +226,7 @@ LINUX_LOAD_RENDERER(linux_load_renderer) {
     }
 
     linux_vk_create_instance(vk, desired_layers, arraycount(desired_layers));
-    linux_vk_pick_best_physical_device_and_create_surface(vk, hwnd, hinst);
+    linux_vk_pick_best_physical_device_and_create_surface(vk, display, window);
 
     vk_init(vk);
 
